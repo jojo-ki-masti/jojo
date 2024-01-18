@@ -1,0 +1,192 @@
+router.post('/add_user_app', async(function (req, res, next) {
+    var useradd = req.body;
+    // Added by deepak start
+    var pincode = useradd.pin
+    console.log(pincode)
+    // addded by deepak
+
+    console.log("check " + JSON.stringify(useradd));
+
+    var user = { name: useradd.name };
+    var error_code = 0;
+    var procName = USER_INS_PROC;
+    const cipher = crypto.createCipher(CIPHER_ALGO_NAME, CIPHER_PASSWORD);
+    //var encrypted = cipher.update('adminuser_sim@123', CIPHER_INPUT_ENCODING, CIPHER_OUTPUT_ENCODING);
+    var encryptedPassword = cipher.update(useradd.password, CIPHER_INPUT_ENCODING, CIPHER_OUTPUT_ENCODING);
+    encryptedPassword += cipher.final(CIPHER_OUTPUT_ENCODING);
+    //added by riya
+    var temp_msg = "";
+    var user_id = "";
+    var temp_success = false;
+    let is_adult = "false"
+    //end here
+    db.tx(async(t => {
+        //  Added by deepak start
+        /*Preparing parameters for function*/
+        var params = [-1, useradd.login_id, useradd.name, encryptedPassword,
+            1, useradd.user_type, useradd.user_block, useradd.oper_id,
+        useradd.mob_no, 'test', useradd.login_type, "NA",
+            "NA", useradd.email, 0,
+        user.name, user.name, useradd.age, is_adult, useradd.country, pincode, useradd.gender, useradd.lang_selection
+        ];
+        console.log(params)
+        //  Added by deepak end
+        /*Global function to execute a procedure */
+        var data = await(executeFunction(procName, params, t, res));
+        // console.log("Data Array : " + data[0].out_error_code);
+        console.log("Data Array : " + data);
+        error_code = data[0].out_error_code;
+        console.log('dd' + error_code);
+        if (error_code == 0) {
+            var user_ids = queryPromise3();
+            // Added by deepak
+            // const insertQuery = 'INSERT INTO user_passwords (user_id, password) VALUES ($1, $2)';
+            // await t.none(insertQuery, [user_id, encryptedPassword]);
+            // sendEmail(userDetails.email, useradd.login_id, useradd.password);
+            //added by riya
+            temp_success = true;
+            temp_msg = USER_ADD_SUCCESSFUL;
+            if (user_ids != '') {
+                user_id = user_ids + 1;
+            } else {
+                user_id = false;
+            }
+            //end here
+        } //added by riya
+        else if (error_code == 10008) {
+            temp_success = false;
+            temp_msg = "Primary User Already Exists";
+        } else if (error_code == 10007) {
+            temp_success = false;
+            temp_msg = "Email id already exist";
+
+        } else if (error_code == 100012) {
+            temp_success = false;
+            temp_msg = "Mobile No. already exist";
+
+        }
+        //end here
+        else {
+            error_code += "";
+            /**Global function call to log error*/
+            await(insertIntoProcErrorLog(error_code, procName, 'SQL_EX'));
+            throw new Error("Rollback");
+        }
+        console.log(JSON.stringify(params))
+    }))
+        .then(data => {
+            console.log(temp_success,
+                temp_msg,
+                user_id)
+            //console.log(data); // printing successful transaction output;
+            sendResponse(req, res, 200, {
+                // success: true, 
+                // msg: USER_ADD_SUCCESSFUL
+                //added by riya
+                success: temp_success,
+                msg: temp_msg,
+                user_id: user_id,
+                is_adult: is_adult
+
+                //end here
+            });
+        })
+        .catch(error => {
+            //console.log(error.code);
+            console.log(error);
+            /*Fetches definition for error code and provides the response*/
+            fetchErrorDef(error_code, res, req);
+        });
+
+}));
+
+
+router.post("/set_adult_password", (req, res) => {
+    const { user_id, password } = req.body;
+    console.log(user_id);
+    console.log(password);
+    const cipher = crypto.createCipher(CIPHER_ALGO_NAME, CIPHER_PASSWORD);
+
+    //var encrypted = cipher.update('adminuser_sim@123', CIPHER_INPUT_ENCODING, CIPHER_OUTPUT_ENCODING);
+    var encryptedPassword = cipher.update(password, CIPHER_INPUT_ENCODING, CIPHER_OUTPUT_ENCODING);
+    encryptedPassword += cipher.final(CIPHER_OUTPUT_ENCODING);
+    // Check if user_id exists and has a password set
+    db.oneOrNone('SELECT * FROM passwords WHERE user_id = $1', [user_id])
+        .then(existingUser => {
+            if (existingUser && existingUser.password_hash) {
+                // res.status(200).json({ success: false, msg: "Password already set for this user" });
+                db.none('UPDATE passwords SET password_hash = $1, updated_date = CURRENT_TIMESTAMP WHERE user_id = $2', [encryptedPassword, user_id])
+                    .then(() => {
+                        res.status(200).json({ success: true, msg: "Password Updated Successfully" });
+                    })
+                    .catch(updateErr => {
+                        console.error(updateErr);
+                        res.status(500).json({ success: false, msg: "Error updating password" });
+                    });
+            } else {
+                // If user_id doesn't exist or doesn't have a password set, insert a new entry
+                db.none('INSERT INTO passwords(user_id, password_hash, inserted_date, updated_date) VALUES($1, $2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)', [user_id, encryptedPassword])
+                    .then(() => {
+                        res.status(200).json({ success: true, msg: "Password Saved Successfully" });
+                    })
+                    .catch(insertErr => {
+                        console.error(insertErr);
+                        res.status(500).json({ success: false, msg: "Error inserting password" });
+                    });
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            res.status(500).json({ success: false, msg: "Internal Server Error" });
+        });
+});
+
+router.post('/check_adult_and_password', ((req, res) => {
+    const { user_id, password } = req.body;
+
+    // Check if the user is an adult
+    // const isAdult = age >= 18;
+
+    // if (!isAdult) {
+    //     return res.status(403).json({ success: false, message: 'User is not an adult and cannot proceed.' });
+    // }
+
+    var query = `SELECT * FROM passwords WHERE user_id = ${user_id}`;
+
+    db.result(query).then(result => {
+        console.log(result.rows, "my result")
+        if (result.rows.length != 0) {
+            const storedPassword = result.rows[0].password_hash; // Assuming password field name is 'password' in user_def table
+            var enc_password = result.rows[0].password_hash;
+            const decipher = crypto.createDecipher(CIPHER_ALGO_NAME, CIPHER_PASSWORD)
+            var password1 = decipher.update(storedPassword, "hex", "utf8");
+            password1 += decipher.final("utf8");
+
+            if (password1 !== password) {
+                return res.status(401).json({ success: false, message: 'Password does not match.' });
+            }
+            return res.status(200).json({ success: true, msg: "Password Matched Successfully" });
+        } else {
+            res.status(200).json({ success: false, msg: "Category Already Exists" });
+        }
+
+    }).catch(err => {
+
+        res.status(500).json({ success: false, msg: "Internal Server Error" });
+    });
+}));
+// Added By Deepak Start
+router.post('/check_adult', (req, res) => {
+    const { user_id, is_adult } = req.body;
+
+    let query = `update user_def set is_adult = ${is_adult} where user_id = ${user_id}`
+
+    db.result(query)
+        .then((data) => {
+            res.status(200).json({ success: true, data: data, msg: 'Data Changed Successfully!' })
+        })
+        .catch((err) => {
+            res.status(500).json({ success: false, msg: 'Server Error' })
+        })
+})
+// Added by Deepak End

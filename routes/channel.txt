@@ -1,0 +1,52 @@
+router.get("/subscribe_channel/:user_id/:channel_category", async(function(req, res, next) {
+    var user_id = req.params.user_id;
+    var channel_category = req.params.channel_category;
+    const user_channel_id = queryPromise_channel_id(user_id);
+    // const promise1 = queryPromise_category();
+    var bouquet_data = new Array();
+    const abc = {};
+    // for (var i = 0; i < 1; i++) {
+        console.log("user_channel_id",user_channel_id);
+        if (user_channel_id == '') {
+            sendResponse(req, res, 200, { success: true, data: [] });
+        } else {
+            const promise_channel_data = queryPromise_channel_data(channel_category, user_channel_id);
+            console.log(JSON.stringify(promise_channel_data))
+            if (promise_channel_data != 0) {
+                abc[channel_category.toString()] = promise_channel_data;
+                // bouquet_data.push(abc);
+                var selectQuery = "select password_hash from passwords where user_id = " + user_id ;
+                //    " union all" +
+                //    " select distinct bd.bouquet_id, bd.bouquet_code, bd.bouquet_name, " +
+                //    " bd.bouquet_icon, bd.url, bd.lang, bd.genre, bd.price, 'N' status " +
+                //    " from bouquet_def bd left join ott_bouquet_mapping obm on obm.bouquet_id= bd.bouquet_id and obm.channel_status = 1 " +
+                //    " where obm.user_id != " + user_id ;
+
+                    db.result(selectQuery)
+                        .then((result) => {
+                            if (result.rows.length > 0) {
+                                var enc_password = result.rows[0].password_hash;
+                                const decipher = crypto.createDecipher(CIPHER_ALGO_NAME, CIPHER_PASSWORD)
+                                var password = decipher.update(enc_password, "hex", "utf8");
+                                password += decipher.final("utf8");
+                                sendResponse(req, res, 200, { success: true, data: promise_channel_data, password: password });
+                            } else {
+                                sendResponse(req, res, 200, { success: true, data: promise_channel_data });
+                            }
+                        })
+                        .catch((err) => {
+                            console.log(err)
+                            sendResponse(req, res, 500, {
+                                success: false,
+                                msg: SERVER_ERROR,
+                            });
+                        });
+            }
+            else{
+                console.log("AAAA")
+                sendResponse(req, res, 500, { success: false, data: abc }); 
+            }
+        }
+    // }
+   
+}));
